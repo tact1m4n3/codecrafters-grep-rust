@@ -33,7 +33,7 @@ fn run() -> anyhow::Result<bool> {
             .context("reading input")?;
 
         let pattern = Pattern::parse(&pattern)?;
-        println!("{:?}", pattern);
+        // println!("{:?}", pattern);
 
         let mut input_iter = input_line.chars().enumerate().peekable();
         while input_iter.peek() != None {
@@ -114,7 +114,12 @@ impl Pattern {
                 '+' => PatternItem::OneOrMore(Box::new(
                     items
                         .pop()
-                        .context("can't use '+' at the start of a pattern")?,
+                        .context("can't use '+' at the start of the pattern")?,
+                )),
+                '?' => PatternItem::ZeroOrOne(Box::new(
+                    items
+                        .pop()
+                        .context("can't use '?' at the start of the pattern")?,
                 )),
                 c => PatternItem::Literal(c),
             };
@@ -145,6 +150,7 @@ enum PatternItem {
     StartAnchor,
     EndAnchor,
     OneOrMore(Box<PatternItem>),
+    ZeroOrOne(Box<PatternItem>),
 }
 
 impl PatternItem {
@@ -181,10 +187,10 @@ impl PatternItem {
                 } => {
                     if !*positive ^ chars.contains(c) {
                         iter.next();
-                            true
+                        true
                     } else {
-                            false
-                        }
+                        false
+                    }
                 }
                 PatternItem::StartAnchor => i == 0,
                 PatternItem::EndAnchor => false,
@@ -195,6 +201,10 @@ impl PatternItem {
                         while inner.matches(iter) {}
                         true
                     }
+                }
+                PatternItem::ZeroOrOne(inner) => {
+                    inner.matches(iter);
+                    true
                 }
             }
         } else {
