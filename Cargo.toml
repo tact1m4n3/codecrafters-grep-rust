@@ -1,10 +1,10 @@
 [package]
 name = "codecrafters-grep"
 version = "0.1.0"
-authors = ["Codecrafters <hello@codecrafters.io>"]
+authors = ["Tudor Andrei Dicu <tudor.andrei.dicu@gmail.com>"]
 edition = "2021"
 rust-version = "1.80"
 
 [dependencies]
-anyhow = "1.0.89"
+anyhow = "1.0"
 bytes = "1.7.2"
