@@ -33,6 +33,7 @@ fn run() -> anyhow::Result<bool> {
             .context("reading input")?;
 
         let pattern = Pattern::parse(&pattern)?;
+        println!("{:?}", pattern);
 
         let mut input_iter = input_line.chars().enumerate().peekable();
         while input_iter.peek() != None {
@@ -48,11 +49,14 @@ fn run() -> anyhow::Result<bool> {
     }
 }
 
-trait CharsIterExt: Iterator<Item = char> {
+trait CharsIterExt {
     fn expect(&mut self) -> anyhow::Result<char>;
 }
 
-impl CharsIterExt for std::str::Chars<'_> {
+impl<I> CharsIterExt for I
+where
+    I: Iterator<Item = char>,
+{
     fn expect(&mut self) -> anyhow::Result<char> {
         if let Some(c) = self.next() {
             Ok(c)
@@ -64,6 +68,7 @@ impl CharsIterExt for std::str::Chars<'_> {
 
 type InputIter<'a> = std::iter::Peekable<std::iter::Enumerate<std::str::Chars<'a>>>;
 
+#[derive(Debug)]
 struct Pattern {
     items: Vec<PatternItem>,
 }
@@ -72,7 +77,7 @@ impl Pattern {
     pub fn parse(raw: &str) -> anyhow::Result<Self> {
         let mut items = Vec::new();
 
-        let mut chars = raw.chars();
+        let mut chars = raw.chars().peekable();
         while let Some(c) = chars.next() {
             let item = match c {
                 '\\' => {
@@ -106,6 +111,11 @@ impl Pattern {
                 }
                 '^' => PatternItem::StartAnchor,
                 '$' => PatternItem::EndAnchor,
+                '+' => PatternItem::OneOrMore(Box::new(
+                    items
+                        .pop()
+                        .context("can't use '+' at the start of a pattern")?,
+                )),
                 c => PatternItem::Literal(c),
             };
 
@@ -126,7 +136,7 @@ impl Pattern {
     }
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 enum PatternItem {
     Literal(char),
     Digit,
@@ -134,6 +144,7 @@ enum PatternItem {
     CharacterGroup { positive: bool, group: String },
     StartAnchor,
     EndAnchor,
+    OneOrMore(Box<PatternItem>),
 }
 
 impl PatternItem {
@@ -141,26 +152,50 @@ impl PatternItem {
         if let Some((i, c)) = iter.peek().copied() {
             match self {
                 PatternItem::Literal(expected) => {
-                    iter.next();
-                    *expected == c
+                    if *expected == c {
+                        iter.next();
+                        true
+                    } else {
+                        false
+                    }
                 }
                 PatternItem::Digit => {
-                    iter.next();
-                    c.is_digit(10)
+                    if c.is_digit(10) {
+                        iter.next();
+                        true
+                    } else {
+                        false
+                    }
                 }
                 PatternItem::Alphanumeric => {
-                    iter.next();
-                    c.is_alphanumeric()
+                    if c.is_alphanumeric() {
+                        iter.next();
+                        true
+                    } else {
+                        false
+                    }
                 }
                 PatternItem::CharacterGroup {
                     positive,
                     group: chars,
                 } => {
-                    iter.next();
-                    !*positive ^ chars.contains(c)
-                },
+                    if !*positive ^ chars.contains(c) {
+                        iter.next();
+                            true
+                    } else {
+                            false
+                        }
+                }
                 PatternItem::StartAnchor => i == 0,
                 PatternItem::EndAnchor => false,
+                PatternItem::OneOrMore(inner) => {
+                    if !inner.matches(iter) {
+                        false
+                    } else {
+                        while inner.matches(iter) {}
+                        true
+                    }
+                }
             }
         } else {
             *self == PatternItem::EndAnchor
