@@ -137,7 +137,7 @@ impl PatternItem {
                 PatternItem::CharacterGroup {
                     positive,
                     group: chars,
-                } => *positive ^ chars.contains(inp_c),
+                } => !*positive ^ chars.contains(inp_c),
             }
         } else {
             false
