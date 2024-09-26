@@ -104,7 +104,8 @@ impl Pattern {
 
                     PatternItem::CharacterGroup { positive, group }
                 }
-                '^' => PatternItem::Start,
+                '^' => PatternItem::StartAnchor,
+                '$' => PatternItem::EndAnchor,
                 c => PatternItem::Literal(c),
             };
 
@@ -125,12 +126,14 @@ impl Pattern {
     }
 }
 
+#[derive(PartialEq, Eq)]
 enum PatternItem {
     Literal(char),
     Digit,
     Alphanumeric,
     CharacterGroup { positive: bool, group: String },
-    Start,
+    StartAnchor,
+    EndAnchor,
 }
 
 impl PatternItem {
@@ -156,10 +159,11 @@ impl PatternItem {
                     iter.next();
                     !*positive ^ chars.contains(c)
                 },
-                PatternItem::Start => i == 0,
+                PatternItem::StartAnchor => i == 0,
+                PatternItem::EndAnchor => false,
             }
         } else {
-            false
+            *self == PatternItem::EndAnchor
         }
     }
 }
