@@ -33,7 +33,14 @@ fn run() -> anyhow::Result<bool> {
             .context("reading input")?;
 
         let pattern = Pattern::parse(&pattern)?;
-        Ok(pattern.matches(&mut input_line.chars()))
+
+        let mut input_iter = input_line.chars().peekable();
+        while let Some(_) = input_iter.peek() {
+            if pattern.matches(&mut input_iter) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     } else {
         anyhow::bail!("No pattern provided.");
     }
@@ -102,7 +109,7 @@ impl Pattern {
         Ok(Self { items })
     }
 
-    pub fn matches(&self, iter: &mut std::str::Chars) -> bool {
+    pub fn matches(&self, iter: &mut impl Iterator<Item = char>) -> bool {
         for item in self.items.iter() {
             if !item.matches(iter) {
                 return false;
@@ -121,7 +128,7 @@ enum PatternItem {
 }
 
 impl PatternItem {
-    fn matches(&self, iter: &mut std::str::Chars) -> bool {
+    fn matches(&self, iter: &mut impl Iterator<Item = char>) -> bool {
         if let Some(inp_c) = iter.next() {
             match self {
                 PatternItem::Literal(exp_c) => *exp_c == inp_c,
