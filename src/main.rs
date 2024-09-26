@@ -121,6 +121,7 @@ impl Pattern {
                         .pop()
                         .context("can't use '?' at the start of the pattern")?,
                 )),
+                '.' => PatternItem::Wildcard,
                 c => PatternItem::Literal(c),
             };
 
@@ -151,6 +152,7 @@ enum PatternItem {
     EndAnchor,
     OneOrMore(Box<PatternItem>),
     ZeroOrOne(Box<PatternItem>),
+    Wildcard,
 }
 
 impl PatternItem {
@@ -204,6 +206,10 @@ impl PatternItem {
                 }
                 PatternItem::ZeroOrOne(inner) => {
                     inner.matches(iter);
+                    true
+                }
+                PatternItem::Wildcard => {
+                    iter.next();
                     true
                 }
             }
