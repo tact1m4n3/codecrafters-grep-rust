@@ -2,13 +2,17 @@ use std::env;
 use std::io;
 use std::process;
 
-fn match_pattern(input_line: &str, pattern: &str) -> bool {
+fn match_pattern(input_line: &str, mut pattern: &str) -> bool {
     if pattern.chars().count() == 1 {
         return input_line.contains(pattern);
     } else if pattern == "\\d" {
         return input_line.contains(|c: char| c.is_digit(10));
     } else if pattern == "\\w" {
         return input_line.contains(|c: char| c.is_alphanumeric());
+    } else if pattern.starts_with('[') {
+        assert_eq!(pattern.find(']').unwrap(), pattern.len() - 1, "didn't find matching brace");
+        pattern = pattern.trim_start_matches('[').trim_end_matches(']');
+        return input_line.contains(|c: char| pattern.contains(c));
     } else {
         panic!("Unhandled pattern: {}", pattern)
     }
