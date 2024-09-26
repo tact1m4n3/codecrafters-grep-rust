@@ -1,46 +1,139 @@
+use anyhow::Context;
 use std::env;
 use std::io;
 use std::process;
 
-fn match_pattern(input_line: &str, mut pattern: &str) -> bool {
-    if pattern.chars().count() == 1 {
-        return input_line.contains(pattern);
-    } else if pattern == "\\d" {
-        return input_line.contains(|c: char| c.is_digit(10));
-    } else if pattern == "\\w" {
-        return input_line.contains(|c: char| c.is_alphanumeric());
-    } else if pattern.starts_with('[') {
-        assert!(pattern.ends_with(']'), "didn't find matching brace");
-        pattern = pattern.get(1..pattern.len() - 1).unwrap();
-        if pattern.starts_with('^') {
-            pattern = pattern.get(1..).unwrap();
-            return !input_line.contains(|c: char| pattern.contains(c));
-        } else {
-            return input_line.contains(|c: char| pattern.contains(c));
+// Usage: echo <input_text> | your_program.sh -E <pattern>
+fn main() {
+    match run() {
+        Ok(ok) => {
+            if ok {
+                process::exit(0);
+            } else {
+                process::exit(1);
+            }
         }
-    } else {
-        panic!("Unhandled pattern: {}", pattern)
+        Err(err) => {
+            eprintln!("{err}");
+            process::exit(1);
+        }
     }
 }
 
-// Usage: echo <input_text> | your_program.sh -E <pattern>
-fn main() {
-    // You can use print statements as follows for debugging, they'll be visible when running tests.
-    println!("Logs from your program will appear here!");
-
-    if env::args().nth(1).unwrap() != "-E" {
-        println!("Expected first argument to be '-E'");
-        process::exit(1);
+fn run() -> anyhow::Result<bool> {
+    if !matches!(env::args().nth(1), Some(flag) if flag == "-E") {
+        anyhow::bail!("Expected -E as the first argument.");
     }
 
-    let pattern = env::args().nth(2).unwrap();
-    let mut input_line = String::new();
+    if let Some(pattern) = env::args().nth(2) {
+        let mut input_line = String::new();
 
-    io::stdin().read_line(&mut input_line).unwrap();
+        io::stdin()
+            .read_line(&mut input_line)
+            .context("reading input")?;
 
-    if match_pattern(&input_line, &pattern) {
-        process::exit(0)
+        let pattern = Pattern::parse(&pattern)?;
+        Ok(pattern.matches(&mut input_line.chars()))
     } else {
-        process::exit(1)
+        anyhow::bail!("No pattern provided.");
+    }
+}
+
+trait CharsExt: Iterator<Item = char> {
+    fn expect(&mut self) -> anyhow::Result<char>;
+}
+
+impl CharsExt for std::str::Chars<'_> {
+    fn expect(&mut self) -> anyhow::Result<char> {
+        if let Some(c) = self.next() {
+            Ok(c)
+        } else {
+            Err(anyhow::anyhow!("expected a character, but ran out."))
+        }
+    }
+}
+
+struct Pattern {
+    items: Vec<PatternItem>,
+}
+
+impl Pattern {
+    pub fn parse(raw: &str) -> anyhow::Result<Self> {
+        let mut items = Vec::new();
+
+        let mut chars = raw.chars();
+        while let Some(c) = chars.next() {
+            let item = match c {
+                '\\' => {
+                    let c = chars.expect()?;
+                    match c {
+                        'd' => PatternItem::Digit,
+                        'w' => PatternItem::Alphanumeric,
+                        c => return Err(anyhow::anyhow!("expected d|w, got {}", c)),
+                    }
+                }
+                '[' => {
+                    let mut group = String::new();
+
+                    let c = chars.expect()?;
+                    let positive = if c == '^' {
+                        false
+                    } else {
+                        group.push(c);
+                        true
+                    };
+
+                    loop {
+                        let c = chars.expect()?;
+                        if c == ']' {
+                            break;
+                        }
+                        group.push(c);
+                    }
+
+                    PatternItem::CharacterGroup { positive, group }
+                }
+                c => PatternItem::Literal(c),
+            };
+
+            items.push(item);
+        }
+
+        Ok(Self { items })
+    }
+
+    pub fn matches(&self, iter: &mut std::str::Chars) -> bool {
+        for item in self.items.iter() {
+            if !item.matches(iter) {
+                return false;
+            }
+        }
+
+        true
+    }
+}
+
+enum PatternItem {
+    Literal(char),
+    Digit,
+    Alphanumeric,
+    CharacterGroup { positive: bool, group: String },
+}
+
+impl PatternItem {
+    fn matches(&self, iter: &mut std::str::Chars) -> bool {
+        if let Some(inp_c) = iter.next() {
+            match self {
+                PatternItem::Literal(exp_c) => *exp_c == inp_c,
+                PatternItem::Digit => inp_c.is_digit(10),
+                PatternItem::Alphanumeric => inp_c.is_alphanumeric(),
+                PatternItem::CharacterGroup {
+                    positive,
+                    group: chars,
+                } => *positive && chars.contains(inp_c),
+            }
+        } else {
+            false
+        }
     }
 }
