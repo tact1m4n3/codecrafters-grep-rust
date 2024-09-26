@@ -34,10 +34,12 @@ fn run() -> anyhow::Result<bool> {
 
         let pattern = Pattern::parse(&pattern)?;
 
-        let mut input_iter = input_line.chars().peekable();
-        while let Some(_) = input_iter.peek() {
+        let mut input_iter = input_line.chars().enumerate().peekable();
+        while input_iter.peek() != None {
             if pattern.matches(&mut input_iter) {
                 return Ok(true);
+            } else {
+                input_iter.next();
             }
         }
         Ok(false)
@@ -46,11 +48,11 @@ fn run() -> anyhow::Result<bool> {
     }
 }
 
-trait CharsExt: Iterator<Item = char> {
+trait CharsIterExt: Iterator<Item = char> {
     fn expect(&mut self) -> anyhow::Result<char>;
 }
 
-impl CharsExt for std::str::Chars<'_> {
+impl CharsIterExt for std::str::Chars<'_> {
     fn expect(&mut self) -> anyhow::Result<char> {
         if let Some(c) = self.next() {
             Ok(c)
@@ -59,6 +61,8 @@ impl CharsExt for std::str::Chars<'_> {
         }
     }
 }
+
+type InputIter<'a> = std::iter::Peekable<std::iter::Enumerate<std::str::Chars<'a>>>;
 
 struct Pattern {
     items: Vec<PatternItem>,
@@ -100,6 +104,7 @@ impl Pattern {
 
                     PatternItem::CharacterGroup { positive, group }
                 }
+                '^' => PatternItem::Start,
                 c => PatternItem::Literal(c),
             };
 
@@ -109,7 +114,7 @@ impl Pattern {
         Ok(Self { items })
     }
 
-    pub fn matches(&self, iter: &mut impl Iterator<Item = char>) -> bool {
+    pub fn matches(&self, iter: &mut InputIter) -> bool {
         for item in self.items.iter() {
             if !item.matches(iter) {
                 return false;
@@ -125,19 +130,33 @@ enum PatternItem {
     Digit,
     Alphanumeric,
     CharacterGroup { positive: bool, group: String },
+    Start,
 }
 
 impl PatternItem {
-    fn matches(&self, iter: &mut impl Iterator<Item = char>) -> bool {
-        if let Some(inp_c) = iter.next() {
+    fn matches(&self, iter: &mut InputIter) -> bool {
+        if let Some((i, c)) = iter.peek().copied() {
             match self {
-                PatternItem::Literal(exp_c) => *exp_c == inp_c,
-                PatternItem::Digit => inp_c.is_digit(10),
-                PatternItem::Alphanumeric => inp_c.is_alphanumeric(),
+                PatternItem::Literal(expected) => {
+                    iter.next();
+                    *expected == c
+                }
+                PatternItem::Digit => {
+                    iter.next();
+                    c.is_digit(10)
+                }
+                PatternItem::Alphanumeric => {
+                    iter.next();
+                    c.is_alphanumeric()
+                }
                 PatternItem::CharacterGroup {
                     positive,
                     group: chars,
-                } => !*positive ^ chars.contains(inp_c),
+                } => {
+                    iter.next();
+                    !*positive ^ chars.contains(c)
+                },
+                PatternItem::Start => i == 0,
             }
         } else {
             false
