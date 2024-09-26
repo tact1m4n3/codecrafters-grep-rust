@@ -10,9 +10,14 @@ fn match_pattern(input_line: &str, mut pattern: &str) -> bool {
     } else if pattern == "\\w" {
         return input_line.contains(|c: char| c.is_alphanumeric());
     } else if pattern.starts_with('[') {
-        assert_eq!(pattern.find(']').unwrap(), pattern.len() - 1, "didn't find matching brace");
-        pattern = pattern.trim_start_matches('[').trim_end_matches(']');
-        return input_line.contains(|c: char| pattern.contains(c));
+        assert!(pattern.ends_with(']'), "didn't find matching brace");
+        pattern = pattern.get(1..pattern.len() - 1).unwrap();
+        if pattern.starts_with('^') {
+            pattern = pattern.get(1..).unwrap();
+            return !input_line.contains(|c: char| pattern.contains(c));
+        } else {
+            return input_line.contains(|c: char| pattern.contains(c));
+        }
     } else {
         panic!("Unhandled pattern: {}", pattern)
     }
