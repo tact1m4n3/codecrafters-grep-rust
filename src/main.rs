@@ -46,11 +46,10 @@ fn run() -> anyhow::Result<bool> {
                 state.clear();
                 state.resize(capture_group_count, None);
 
-                if pattern.matches(&input_line, &mut input_iter, &mut state) {
-                    println!("{:?}", state);
+                let mut iter = input_iter.clone();
+                if pattern.matches(&input_line, &mut iter, &mut state) {
                     return Ok(true);
                 } else {
-                    println!("{:?}", state);
                     input_iter.next();
                 }
             }
