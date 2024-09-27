@@ -1,9 +1,9 @@
 use anyhow::Context;
 use std::env;
 use std::io;
+use std::ops::Range;
 use std::process;
 
-// Usage: echo <input_text> | your_program.sh -E <pattern>
 fn main() {
     match run() {
         Ok(ok) => {
@@ -32,13 +32,25 @@ fn run() -> anyhow::Result<bool> {
             .read_line(&mut input_line)
             .context("reading input")?;
 
-        if let Some(pattern) = Pattern::parse_either(&mut pattern.chars().peekable(), EndFlags::empty())? {
+        let mut capture_group_count = 0;
+        if let Some(pattern) = Pattern::parse_either(
+            &mut pattern.chars().peekable(),
+            EndFlags::empty(),
+            &mut capture_group_count,
+            None,
+        )? {
             println!("{pattern:?}");
-            let mut input_iter = input_line.chars().enumerate().peekable();
+            let mut input_iter = input_line.char_indices().peekable();
+            let mut state = Vec::new();
             while input_iter.peek() != None {
-                if pattern.matches(&mut input_iter) {
+                state.clear();
+                state.resize(capture_group_count, None);
+
+                if pattern.matches(&input_line, &mut input_iter, &mut state) {
+                    println!("{:?}", state);
                     return Ok(true);
                 } else {
+                    println!("{:?}", state);
                     input_iter.next();
                 }
             }
@@ -77,8 +89,8 @@ bitflags::bitflags! {
     }
 }
 
-type InputIter<'a> = std::iter::Peekable<std::iter::Enumerate<std::str::Chars<'a>>>;
 type PatternIter<'a> = std::iter::Peekable<std::str::Chars<'a>>;
+type InputIter<'a> = std::iter::Peekable<std::str::CharIndices<'a>>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Pattern {
@@ -93,13 +105,25 @@ enum Pattern {
     Wildcard,
     List(Vec<Pattern>),
     Either(Vec<Pattern>),
+    Reference(usize),
+    CaptureGroup { id: usize, item: Box<Pattern> },
 }
 
 impl Pattern {
-    pub fn parse_either(iter: &mut PatternIter, end: EndFlags) -> anyhow::Result<Option<Self>> {
+    pub fn parse_either(
+        iter: &mut PatternIter,
+        end: EndFlags,
+        capture_group_count: &mut usize,
+        parent_capture_group: Option<usize>,
+    ) -> anyhow::Result<Option<Self>> {
         let mut pattern = None;
 
-        while let Some(item) = Self::parse_list(iter, end | EndFlags::PIPE)? {
+        while let Some(item) = Self::parse_list(
+            iter,
+            end | EndFlags::PIPE,
+            capture_group_count,
+            parent_capture_group,
+        )? {
             pattern = if let Some(pattern) = pattern.take() {
                 if let Pattern::Either(mut items) = pattern {
                     items.push(item);
@@ -124,10 +148,15 @@ impl Pattern {
         Ok(pattern)
     }
 
-    pub fn parse_list(iter: &mut PatternIter, end: EndFlags) -> anyhow::Result<Option<Self>> {
+    pub fn parse_list(
+        iter: &mut PatternIter,
+        end: EndFlags,
+        capture_group_count: &mut usize,
+        parent_capture_group: Option<usize>,
+    ) -> anyhow::Result<Option<Self>> {
         let mut pattern = None;
 
-        while let Some(item) = Self::parse_one(iter)? {
+        while let Some(item) = Self::parse_one(iter, capture_group_count, parent_capture_group)? {
             pattern = if let Some(pattern) = pattern.take() {
                 if let Pattern::List(mut items) = pattern {
                     items.push(item);
@@ -141,7 +170,9 @@ impl Pattern {
             };
 
             if let Some(c) = iter.peek().copied() {
-                if c == ')' && end.contains(EndFlags::RPAREN) || c == '|' && end.contains(EndFlags::PIPE) {
+                if c == ')' && end.contains(EndFlags::RPAREN)
+                    || c == '|' && end.contains(EndFlags::PIPE)
+                {
                     break;
                 }
             }
@@ -150,7 +181,11 @@ impl Pattern {
         Ok(pattern)
     }
 
-    pub fn parse_one(iter: &mut PatternIter) -> anyhow::Result<Option<Self>> {
+    pub fn parse_one(
+        iter: &mut PatternIter,
+        capture_group_count: &mut usize,
+        parent_capture_group: Option<usize>,
+    ) -> anyhow::Result<Option<Self>> {
         if let Some(c) = iter.next() {
             let mut item = match c {
                 '\\' => {
@@ -158,14 +193,51 @@ impl Pattern {
                     match c {
                         'd' => Pattern::Digit,
                         'w' => Pattern::Alphanumeric,
-                        c => return Err(anyhow::anyhow!("expected 'd' or 'w', got '{}'", c)),
+                        c => {
+                            if let Some(d) = c.to_digit(10) {
+                                let mut num = d;
+                                while let Some(c) = iter.peek() {
+                                    if let Some(d) = c.to_digit(10) {
+                                        iter.next();
+                                        num *= 10;
+                                        num += d;
+                                    } else {
+                                        break;
+                                    }
+                                }
+
+                                anyhow::ensure!(num != 0, "back reference id can't be 0");
+                                let id = num as usize - 1;
+                                anyhow::ensure!(
+                                    id < *capture_group_count,
+                                    "back reference invalid"
+                                );
+                                if let Some(parent) = parent_capture_group {
+                                    anyhow::ensure!(
+                                        parent != id,
+                                        "back reference to current capture group"
+                                    );
+                                }
+
+                                Pattern::Reference(id)
+                            } else {
+                                anyhow::bail!("expected 'd', 'w' or number, got '{}'", c);
+                            }
+                        }
                     }
                 }
                 '(' => {
-                    if let Some(item) = Self::parse_either(iter, EndFlags::RPAREN)? {
+                    let id = *capture_group_count;
+                    *capture_group_count += 1;
+                    if let Some(item) =
+                        Self::parse_either(iter, EndFlags::RPAREN, capture_group_count, Some(id))?
+                    {
                         let c = iter.expect()?;
                         anyhow::ensure!(c == ')', "expected ')'");
-                        item
+                        Pattern::CaptureGroup {
+                            id,
+                            item: Box::new(item),
+                        }
                     } else {
                         anyhow::bail!("empty group is not allowed");
                     }
@@ -216,56 +288,51 @@ impl Pattern {
         }
     }
 
-    fn matches(&self, iter: &mut InputIter) -> bool {
+    fn matches(
+        &self,
+        input: &str,
+        iter: &mut InputIter,
+        state: &mut [Option<Range<usize>>],
+    ) -> bool {
         if let Some((i, c)) = iter.peek().copied() {
             match self {
                 Pattern::Literal(expected) => {
-                    if *expected == c {
-                        iter.next();
-                        true
-                    } else {
-                        false
-                    }
+                    iter.next();
+                    *expected == c
                 }
                 Pattern::Digit => {
-                    if c.is_digit(10) {
-                        iter.next();
-                        true
-                    } else {
-                        false
-                    }
+                    iter.next();
+                    c.is_digit(10)
                 }
                 Pattern::Alphanumeric => {
-                    if c.is_alphanumeric() {
-                        iter.next();
-                        true
-                    } else {
-                        false
-                    }
+                    iter.next();
+                    c.is_alphanumeric()
                 }
                 Pattern::CharacterGroup {
                     positive,
                     group: chars,
                 } => {
-                    if !*positive ^ chars.contains(c) {
-                        iter.next();
-                        true
-                    } else {
-                        false
-                    }
+                    iter.next();
+                    !*positive ^ chars.contains(c)
                 }
                 Pattern::StartAnchor => i == 0,
                 Pattern::EndAnchor => false,
                 Pattern::OneOrMore(inner) => {
-                    if !inner.matches(iter) {
+                    if !inner.matches(input, iter, state) {
                         false
                     } else {
-                        while inner.matches(iter) {}
+                        let mut tmp_iter = iter.clone();
+                        while inner.matches(input, &mut tmp_iter, state) {
+                            *iter = tmp_iter.clone();
+                        }
                         true
                     }
                 }
                 Pattern::ZeroOrOne(inner) => {
-                    inner.matches(iter);
+                    let mut tmp_iter = iter.clone();
+                    if inner.matches(input, &mut tmp_iter, state) {
+                        *iter = tmp_iter;
+                    }
                     true
                 }
                 Pattern::Wildcard => {
@@ -275,7 +342,7 @@ impl Pattern {
                 Pattern::Either(items) => {
                     for item in items.iter() {
                         let mut tmp_iter = iter.clone();
-                        if item.matches(&mut tmp_iter) {
+                        if item.matches(input, &mut tmp_iter, state) {
                             *iter = tmp_iter;
                             return true;
                         }
@@ -285,12 +352,44 @@ impl Pattern {
                 }
                 Pattern::List(items) => {
                     for item in items.iter() {
-                        if !item.matches(iter) {
+                        if !item.matches(input, iter, state) {
                             return false;
                         }
                     }
 
                     true
+                }
+                Pattern::Reference(id) => {
+                    if let Some(range) = &state[*id] {
+                        let content = input.get(range.clone()).unwrap();
+
+                        for exp_c in content.chars() {
+                            if let Some((_, c)) = iter.next() {
+                                if exp_c != c {
+                                    return false;
+                                }
+                            } else {
+                                return false;
+                            }
+                        }
+
+                        true
+                    } else {
+                        false
+                    }
+                }
+                Pattern::CaptureGroup { id, item } => {
+                    let start = i;
+                    if item.matches(input, iter, state) {
+                        if let Some((end, _)) = iter.peek().copied() {
+                            state[*id] = Some(start..end);
+                        } else {
+                            state[*id] = Some(start..input.len());
+                        }
+                        true
+                    } else {
+                        false
+                    }
                 }
             }
         } else {
