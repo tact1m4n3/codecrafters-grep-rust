@@ -48,10 +48,12 @@ fn run() -> anyhow::Result<bool> {
 
                 let mut iter = input_iter.clone();
                 if pattern.matches(&input_line, &mut iter, &mut state) {
+                    println!("{:?}", state);
                     return Ok(true);
                 } else {
                     input_iter.next();
                 }
+                break;
             }
 
             Ok(false)
@@ -293,6 +295,7 @@ impl Pattern {
         iter: &mut InputIter,
         state: &mut [Option<Range<usize>>],
     ) -> bool {
+        println!("matching {:?}", self);
         if let Some((i, c)) = iter.peek().copied() {
             match self {
                 Pattern::Literal(expected) => {
@@ -312,7 +315,7 @@ impl Pattern {
                     group: chars,
                 } => {
                     iter.next();
-                    !*positive ^ chars.contains(c)
+                    c.is_alphabetic() && !*positive ^ chars.contains(c)
                 }
                 Pattern::StartAnchor => i == 0,
                 Pattern::EndAnchor => false,
