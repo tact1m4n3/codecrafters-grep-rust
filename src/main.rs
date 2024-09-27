@@ -40,7 +40,9 @@ fn run() -> anyhow::Result<bool> {
             None,
         )? {
             let mut input_iter = input_line.char_indices().peekable();
+
             let mut state = Vec::new();
+
             while input_iter.peek() != None {
                 state.clear();
                 state.resize(capture_group_count, None);
@@ -108,7 +110,7 @@ enum Pattern {
 }
 
 impl Pattern {
-    pub fn parse_either(
+    fn parse_either(
         iter: &mut PatternIter,
         end: EndFlags,
         capture_group_count: &mut usize,
@@ -146,7 +148,7 @@ impl Pattern {
         Ok(pattern)
     }
 
-    pub fn parse_list(
+    fn parse_list(
         iter: &mut PatternIter,
         end: EndFlags,
         capture_group_count: &mut usize,
@@ -179,7 +181,7 @@ impl Pattern {
         Ok(pattern)
     }
 
-    pub fn parse_one(
+    fn parse_one(
         iter: &mut PatternIter,
         capture_group_count: &mut usize,
         parent_capture_group: Option<usize>,
