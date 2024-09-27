@@ -39,7 +39,6 @@ fn run() -> anyhow::Result<bool> {
             &mut capture_group_count,
             None,
         )? {
-            println!("{pattern:?}");
             let mut input_iter = input_line.char_indices().peekable();
             let mut state = Vec::new();
             while input_iter.peek() != None {
@@ -48,12 +47,10 @@ fn run() -> anyhow::Result<bool> {
 
                 let mut iter = input_iter.clone();
                 if pattern.matches(&input_line, &mut iter, &mut state) {
-                    println!("{:?}", state);
                     return Ok(true);
                 } else {
                     input_iter.next();
                 }
-                break;
             }
 
             Ok(false)
@@ -295,7 +292,6 @@ impl Pattern {
         iter: &mut InputIter,
         state: &mut [Option<Range<usize>>],
     ) -> bool {
-        println!("matching {:?}", self);
         if let Some((i, c)) = iter.peek().copied() {
             match self {
                 Pattern::Literal(expected) => {
